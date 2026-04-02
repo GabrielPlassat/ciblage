@@ -119,12 +119,6 @@ streamlit run app.py
 
 ---
 
-## Contexte politique
-
-Ce projet a été initié dans le cadre de la réponse à l'instruction du Premier Ministre du 1er avril 2026 demandant un plan d'électrification d'urgence des mobilités, avec pour priorité explicite :
-
-> *"Mettre en place, dans les prochaines semaines, une offre de location de véhicules électriques dédiée à certaines professions ciblées ayant de longs trajets quotidiens, par exemple les infirmiers libéraux ou les aides-soignants."*
-
 Le Cibloscope est l'outil de ciblage qui permet d'identifier ces professions et de prioriser les communes d'intervention.
 
 ---

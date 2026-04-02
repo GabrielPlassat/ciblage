@@ -249,29 +249,35 @@ elif onglet == '🗺️ Carte Cibloscope':
             }[x]
         )
     with col_o2:
-        n_max = st.slider('Nb communes (performance)', 500, 5000, 2000, 500)
+        mode_affichage = st.selectbox(
+            'Mode affichage',
+            ['Toutes les communes', 'Prioritaires uniquement',
+             'Top 20% les plus exposées']
+        )
 
-    # Préparer les données carte
-    df_carte = (
-        df_filtre
-        .nlargest(n_max, variable_carte)
-        [['COMMUNE', variable_carte, 'segment', 'pct_voiture', 'w_total']]
-        .copy()
-    )
+    # ─── Sélection des communes à afficher ────────────────────────────────────
+    if mode_affichage == 'Toutes les communes':
+        df_carte = df_filtre.copy()
+    elif mode_affichage == 'Prioritaires uniquement':
+        df_carte = df_filtre[df_filtre['segment'] == 'Prioritaire'].copy()
+    else:
+        seuil_p80 = df_filtre[variable_carte].quantile(0.80)
+        df_carte = df_filtre[df_filtre[variable_carte] >= seuil_p80].copy()
 
-    # Filtrer le GeoJSON pour ne garder que les communes dans df_carte
-    codes_carte = set(df_carte['COMMUNE'].tolist())
-    score_map   = df_carte.set_index('COMMUNE')[variable_carte].to_dict()
-    seg_map     = df_carte.set_index('COMMUNE')['segment'].to_dict()
+    st.caption(f'Affichage : {len(df_carte):,} communes')
+
+    # ─── Filtrage GeoJSON ─────────────────────────────────────────────────────
+    codes_carte = set(df_carte['COMMUNE'].astype(str).tolist())
 
     geojson_filtre = {
         'type': 'FeatureCollection',
         'features': [
             f for f in geojson_raw['features']
-            if f['properties']['code'].zfill(5) in codes_carte
+            if str(f['properties']['code']).zfill(5) in codes_carte
         ]
     }
 
+    # ─── Carte Folium ─────────────────────────────────────────────────────────
     m = folium.Map(
         location=[46.6, 2.4],
         zoom_start=6 if dep_filtre == 'Tous' else 9,
@@ -284,36 +290,68 @@ elif onglet == '🗺️ Carte Cibloscope':
         columns=['COMMUNE', variable_carte],
         key_on='feature.properties.code',
         fill_color='RdYlGn_r',
-        fill_opacity=0.75,
+        fill_opacity=0.80,
         line_opacity=0.05,
+        line_weight=0,          # ← supprime les bordures = moins de bruit visuel
         legend_name=variable_carte.upper(),
-        nan_fill_color='#f0f0f0',
+        nan_fill_color='#e8e8e8',
+        nan_fill_opacity=0.3,
         bins=7
     ).add_to(m)
 
+    # Tooltips
+    df_tooltip = df_carte.merge(
+        df_codes.rename(columns={'code': 'COMMUNE', 'nom': 'nom_commune'}),
+        on='COMMUNE', how='left'
+    )
+    geojson_tooltip = {
+        'type': 'FeatureCollection',
+        'features': []
+    }
+    score_map = df_tooltip.set_index('COMMUNE').to_dict(orient='index')
+    for f in geojson_filtre['features']:
+        code = str(f['properties']['code']).zfill(5)
+        if code in score_map:
+            row = score_map[code]
+            f2 = {
+                'type': 'Feature',
+                'geometry': f['geometry'],
+                'properties': {
+                    'code'     : code,
+                    'nom'      : f['properties'].get('nom',''),
+                    'score'    : round(float(row.get('score', 0)), 3),
+                    'ica'      : round(float(row.get('ica', 0)), 3),
+                    'segment'  : str(row.get('segment', '')),
+                    'voiture'  : f"{round(float(row.get('pct_voiture',0))*100, 1)}%",
+                    'actifs'   : int(row.get('w_total', 0)),
+                }
+            }
+            geojson_tooltip['features'].append(f2)
+
     folium.GeoJson(
-        geojson_filtre,
+        geojson_tooltip,
         style_function=lambda x: {'fillOpacity': 0, 'weight': 0},
-        highlight_function=lambda x: {'weight': 2, 'color': '#333'},
+        highlight_function=lambda x: {'weight': 2, 'color': '#333',
+                                       'fillOpacity': 0.1},
         tooltip=folium.GeoJsonTooltip(
-            fields=['code', 'nom'],
-            aliases=['Code', 'Commune'],
+            fields=['nom', 'segment', 'score', 'ica', 'voiture', 'actifs'],
+            aliases=['Commune', 'Segment', 'Score', 'ICA',
+                     '% voiture', 'Actifs'],
             sticky=True
         )
     ).add_to(m)
 
-    st_folium(m, width='100%', height=550)
+    st_folium(m, width='100%', height=580)
 
-    st.subheader(f'Top 20 — {variable_carte.upper()}')
-    cols_disp = [c for c in
-                 ['COMMUNE', 'DEP', 'score', 'ica', 'svs',
-                  'pct_voiture', 'w_total', 'segment']
+    # Table sous la carte
+    st.subheader(f'Top 20 — {variable_carte.upper()} le plus élevé')
+    cols_disp = [c for c in ['COMMUNE', 'DEP', 'score', 'ica', 'svs',
+                              'pct_voiture', 'w_total', 'segment']
                  if c in df_filtre.columns]
     st.dataframe(
         df_filtre.nlargest(20, variable_carte)[cols_disp].round(3),
         use_container_width=True, hide_index=True
     )
-
 
 # ══════════════════════════════════════════════════════════════
 # ONGLET 3 — MERCATO
